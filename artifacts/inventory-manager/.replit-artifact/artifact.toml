@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Inventory Manager"
+description = "A full-stack inventory management app for administrators to track products, stock levels, low-stock alerts, and inventory reports with data permanently stored in PostgreSQL."
+version = "1.0.0"
+id = "artifacts/inventory-manager"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22192
+
+[services.development]
+run = "pnpm --filter @workspace/inventory-manager run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/inventory-manager", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/inventory-manager/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22192"
+BASE_PATH = "/"

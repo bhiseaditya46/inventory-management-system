@@ -1,0 +1,332 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: products
+    description: Product and stock management
+  - name: dashboard
+    description: Inventory overview
+  - name: reports
+    description: Inventory reports
+  - name: auth
+    description: Administrator access
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /products:
+    get:
+      operationId: listProducts
+      tags: [products]
+      summary: List and filter products
+      parameters:
+        - in: query
+          name: search
+          schema: { type: string }
+        - in: query
+          name: category
+          schema: { type: string }
+        - in: query
+          name: stockStatus
+          schema: { type: string, enum: [all, low, out] }
+      responses:
+        "200":
+          description: Products matching the filters
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Product" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      operationId: createProduct
+      tags: [products]
+      summary: Create a product
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProductInput" }
+      responses:
+        "201":
+          description: Product created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Product" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /products/low-stock:
+    get:
+      operationId: listLowStockProducts
+      tags: [products]
+      summary: List products at or below their reorder level
+      responses:
+        "200":
+          description: Products requiring attention
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Product" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /products/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: integer, minimum: 1 }
+    get:
+      operationId: getProduct
+      tags: [products]
+      summary: Get a product
+      responses:
+        "200":
+          description: Product details
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Product" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      operationId: updateProduct
+      tags: [products]
+      summary: Update a product
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProductUpdate" }
+      responses:
+        "200":
+          description: Product updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Product" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      operationId: deleteProduct
+      tags: [products]
+      summary: Delete a product
+      responses:
+        "204": { description: Product deleted }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /products/{id}/stock:
+    post:
+      operationId: adjustProductStock
+      tags: [products]
+      summary: Adjust stock by a signed quantity
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, minimum: 1 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StockAdjustmentInput" }
+      responses:
+        "200":
+          description: Updated stock and movement record
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StockAdjustmentResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Get inventory statistics
+      responses:
+        "200":
+          description: Current inventory totals and attention counts
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DashboardSummary" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /reports/inventory.csv:
+    get:
+      operationId: downloadInventoryReport
+      tags: [reports]
+      summary: Download the current inventory as CSV
+      responses:
+        "200":
+          description: CSV report generated from current database records
+          content:
+            text/csv:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /auth/admin-access:
+    get:
+      operationId: getAdminAccess
+      tags: [auth]
+      summary: Check whether the current user is an administrator
+      responses:
+        "200":
+          description: Current administrator access state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminAccess" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /auth/bootstrap-admin:
+    post:
+      operationId: bootstrapAdmin
+      tags: [auth]
+      summary: Register an approved initial administrator
+      responses:
+        "200":
+          description: Administrator access state after bootstrap attempt
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminAccess" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+components:
+  responses:
+    BadRequest:
+      description: Request validation failed
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    Unauthorized:
+      description: Sign-in required or administrator access denied
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    Forbidden:
+      description: Signed-in user is not an administrator
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    Conflict:
+      description: A product with that SKU already exists
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+    Product:
+      type: object
+      required: [id, sku, name, category, quantity, reorderLevel, unitPrice, description, supplier, createdAt, updatedAt]
+      properties:
+        id: { type: integer }
+        sku: { type: string }
+        name: { type: string }
+        category: { type: string }
+        quantity: { type: integer }
+        reorderLevel: { type: integer }
+        unitPrice: { type: number }
+        description: { type: ["string", "null"] }
+        supplier: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ProductInput:
+      type: object
+      required: [sku, name, category, quantity, reorderLevel, unitPrice]
+      properties:
+        sku: { type: string, minLength: 1, maxLength: 80 }
+        name: { type: string, minLength: 1, maxLength: 160 }
+        category: { type: string, minLength: 1, maxLength: 80 }
+        quantity: { type: integer, minimum: 0 }
+        reorderLevel: { type: integer, minimum: 0 }
+        unitPrice: { type: number, minimum: 0 }
+        description: { type: ["string", "null"], maxLength: 1000 }
+        supplier: { type: ["string", "null"], maxLength: 160 }
+    ProductUpdate:
+      type: object
+      minProperties: 1
+      properties:
+        sku: { type: string, minLength: 1, maxLength: 80 }
+        name: { type: string, minLength: 1, maxLength: 160 }
+        category: { type: string, minLength: 1, maxLength: 80 }
+        quantity: { type: integer, minimum: 0 }
+        reorderLevel: { type: integer, minimum: 0 }
+        unitPrice: { type: number, minimum: 0 }
+        description: { type: ["string", "null"], maxLength: 1000 }
+        supplier: { type: ["string", "null"], maxLength: 160 }
+    StockAdjustmentInput:
+      type: object
+      required: [delta]
+      properties:
+        delta: { type: integer, not: { const: 0 } }
+        note: { type: string, maxLength: 300 }
+    StockMovement:
+      type: object
+      required: [id, productId, delta, note, createdAt]
+      properties:
+        id: { type: integer }
+        productId: { type: integer }
+        delta: { type: integer }
+        note: { type: string }
+        createdAt: { type: string, format: date-time }
+    StockAdjustmentResult:
+      type: object
+      required: [product, movement]
+      properties:
+        product: { $ref: "#/components/schemas/Product" }
+        movement: { $ref: "#/components/schemas/StockMovement" }
+    DashboardSummary:
+      type: object
+      required: [productCount, totalUnits, inventoryValue, lowStockCount, outOfStockCount, categoryCount]
+      properties:
+        productCount: { type: integer }
+        totalUnits: { type: integer }
+        inventoryValue: { type: number }
+        lowStockCount: { type: integer }
+        outOfStockCount: { type: integer }
+        categoryCount: { type: integer }
+    AdminAccess:
+      type: object
+      required: [isAdmin, registrationAllowed]
+      properties:
+        isAdmin: { type: boolean }
+        registrationAllowed: { type: boolean }
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+
