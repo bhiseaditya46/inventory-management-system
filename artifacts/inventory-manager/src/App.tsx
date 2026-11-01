@@ -55,13 +55,14 @@ import NotFound from '@/pages/not-found';
 import './app.css';
 
 const queryClient = new QueryClient();
-const clerkPubKey = publishableKeyFromHost(window.location.hostname, import.meta.env.VITE_CLERK_PUBLISHABLE_KEY);
+const rawClerkKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY || (import.meta.env as Record<string, string>).CLERK_PUBLISHABLE_KEY;
+const clerkPubKey = publishableKeyFromHost(window.location.hostname, rawClerkKey);
 const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;
 const basePath = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
 function stripBase(path: string) {
   return basePath && path.startsWith(basePath) ? path.slice(basePath.length) || '/' : path;
 }
-if (!clerkPubKey) throw new Error('Missing VITE_CLERK_PUBLISHABLE_KEY in .env file');
+if (!clerkPubKey) throw new Error('Missing CLERK_PUBLISHABLE_KEY or VITE_CLERK_PUBLISHABLE_KEY in .env file');
 
 const appearance = {
   theme: shadcn,

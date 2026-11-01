@@ -145,7 +145,15 @@ This creates the following tables:
 
 ### Step 5: Start Frontend and Backend
 
-You can run both servers from the project root using two PowerShell terminals or VS Code tasks:
+You can run both servers with a single command from the project root:
+
+```powershell
+pnpm run dev
+```
+
+*This starts both the API server on `http://localhost:3001` and the Vite frontend on `http://localhost:5173` simultaneously.*
+
+Alternatively, you can run them in separate terminals:
 
 #### Terminal 1 — Start the API Server:
 ```powershell
@@ -159,7 +167,7 @@ pnpm run dev:frontend
 ```
 *Frontend will launch on `http://localhost:5173`.*
 
-Alternatively, press **Ctrl + Shift + B** in VS Code to run the pre-configured tasks **"Start API Server"** and **"Start Frontend"**.
+Or press **Ctrl + Shift + B** in VS Code to run the pre-configured compound task **"Start Stockroom (API + Frontend)"**.
 
 ---
 

@@ -5,7 +5,7 @@ import { defineConfig } from 'vite';
 
 import runtimeErrorOverlay from '@replit/vite-plugin-runtime-error-modal';
 
-const rawPort = process.env.PORT || '5173';
+const rawPort = process.env.FRONTEND_PORT || process.env.VITE_PORT || '5173';
 const port = Number(rawPort);
 
 if (Number.isNaN(port) || port <= 0) {
@@ -17,6 +17,8 @@ const apiTarget = process.env.VITE_API_URL || 'http://localhost:3001';
 
 export default defineConfig({
   base: basePath,
+  envDir: path.resolve(import.meta.dirname, '../../'),
+  envPrefix: ['VITE_', 'CLERK_'],
   plugins: [
     react(),
     tailwindcss({ optimize: false }),
