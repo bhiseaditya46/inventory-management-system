@@ -1,3 +1,4 @@
+import "./env";
 import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
@@ -43,6 +44,7 @@ app.use(
       getClerkProxyHost(req) ?? "",
       process.env.CLERK_PUBLISHABLE_KEY,
     ),
+    secretKey: process.env.CLERK_SECRET_KEY,
   })),
 );
 

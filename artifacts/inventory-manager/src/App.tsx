@@ -7,7 +7,7 @@ import {
   Activity, AlertCircle, AlertTriangle, ArrowDownToLine, ArrowRight, Boxes, Check,
   ChevronDown, CircleDollarSign, ClipboardList, FileBarChart2, History, LayoutDashboard, LogOut, Menu,
   Package, PackagePlus, Pencil, Plus, Search, ShieldCheck, SlidersHorizontal, Trash2, Truck,
-  Users, X, XCircle,
+  Upload, Users, X, XCircle,
 } from 'lucide-react';
 import { Link, Route, Switch, Router as WouterRouter, useLocation } from 'wouter';
 import {
@@ -111,10 +111,12 @@ function ClerkAuthSync() {
           return null;
         }
       });
+      void qc.invalidateQueries({ queryKey: getGetCurrentUserQueryKey() });
+      void qc.invalidateQueries({ queryKey: getGetAdminAccessQueryKey() });
     } else {
       setAuthTokenGetter(null);
     }
-  }, [getToken, isSignedIn]);
+  }, [getToken, isSignedIn, qc]);
 
   useEffect(() => addListener(({ user }) => {
     const id = user?.id ?? null;
@@ -156,8 +158,22 @@ function HomeRoute() {
 
 function Protected({ children, requireAdmin = false }: { children: ReactNode; requireAdmin?: boolean }) {
   const { isLoaded, isSignedIn } = useAuth();
-  const me = useGetCurrentUser({ query: { enabled: isLoaded && !!isSignedIn, queryKey: getGetCurrentUserQueryKey(), retry: false } });
-  const adminAccess = useGetAdminAccess({ query: { enabled: isLoaded && !!isSignedIn, queryKey: getGetAdminAccessQueryKey(), retry: false } });
+  const me = useGetCurrentUser({
+    query: {
+      enabled: isLoaded && !!isSignedIn,
+      queryKey: getGetCurrentUserQueryKey(),
+      retry: 2,
+      retryDelay: 1000,
+    },
+  });
+  const adminAccess = useGetAdminAccess({
+    query: {
+      enabled: isLoaded && !!isSignedIn,
+      queryKey: getGetAdminAccessQueryKey(),
+      retry: 2,
+      retryDelay: 1000,
+    },
+  });
 
   if (!isLoaded || (isSignedIn && me.isLoading)) return <AppLoading />;
   if (!isSignedIn) return <AccessGate signedOut />;
@@ -224,6 +240,7 @@ function AccessGate({ signedOut = false, error = false, registrationAllowed = fa
     <p>{signedOut ? 'Sign in to your account to manage your inventory.' : error ? 'The access check could not be completed. Please try again in a moment.' : notAdmin ? 'You are signed in with a Normal User account. Administrator privileges are required to access this section.' : 'An administrator must approve this account before it can perform this action.'}</p>
     {signedOut ? <div className="gate-actions"><Link href="/sign-in" className="btn btn-primary">Sign in <ArrowRight size={16} /></Link><Link href="/" className="btn btn-quiet">Back to home</Link></div>
       : <div className="gate-actions">
+          {error && <button className="btn btn-primary" onClick={() => { void qc.invalidateQueries({ queryKey: getGetCurrentUserQueryKey() }); void qc.invalidateQueries({ queryKey: getGetAdminAccessQueryKey() }); }} data-testid="button-retry-access">Try again</button>}
           {notAdmin && <Link href="/" className="btn btn-primary">Return to my dashboard</Link>}
           {registrationAllowed && <button className="btn btn-primary" onClick={claim} disabled={bootstrap.isPending} data-testid="button-bootstrap-admin">{bootstrap.isPending ? 'Checking eligibility…' : 'Complete administrator setup'}</button>}
           <button className="btn btn-quiet" onClick={() => signOut({ redirectUrl: basePath || '/' })} data-testid="button-sign-out"><LogOut size={16} /> Sign out</button>
@@ -364,13 +381,20 @@ function Metric({ label, value, hint, icon, tone, alert = false }: { label: stri
 function EmptyInline({ label }: { label: string }) { return <div className="empty-inline">{label}</div>; }
 function TableSkeleton({ rows = 4 }: { rows?: number }) { return <div className="table-skeleton">{Array.from({ length: rows }, (_, i) => <div className="table-skeleton-row" key={i}><i /><i /><i /><i /></div>)}</div>; }
 
-type DialogMode = 'create' | 'edit' | 'stock' | 'detail' | null;
+type DialogMode = 'create' | 'edit' | 'stock' | 'detail' | 'import' | null;
 function ProductsPage() {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
   const [stockStatus, setStockStatus] = useState('all');
   const [dialog, setDialog] = useState<DialogMode>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+
+  const [importRows, setImportRows] = useState<any[]>([]);
+  const [importFileName, setImportFileName] = useState('');
+  const [importLoading, setImportLoading] = useState(false);
+  const [importError, setImportError] = useState('');
+  const [importSuccess, setImportSuccess] = useState('');
+
   const listParams = useMemo<ListProductsParams>(() => ({ ...(search.trim() ? { search: search.trim() } : {}), ...(category ? { category } : {}), ...(stockStatus !== 'all' ? { stockStatus: stockStatus as ListProductsParams['stockStatus'] } : {}) }), [search, category, stockStatus]);
   const products = useListProducts(listParams, { query: { queryKey: getListProductsQueryKey(listParams), placeholderData: previous => previous } });
   const categoryProducts = useListProducts(undefined, { query: { queryKey: getListProductsQueryKey() } });
@@ -394,7 +418,116 @@ function ProductsPage() {
       ...(id ? [qc.invalidateQueries({ queryKey: getGetProductQueryKey(id) }), qc.invalidateQueries({ queryKey: getListProductMovementsQueryKey(id) })] : []),
     ]);
   }
-  function open(mode: DialogMode, id?: number) { setSelectedId(id ?? null); setDialog(mode); }
+  function open(mode: DialogMode, id?: number) {
+    setSelectedId(id ?? null);
+    setDialog(mode);
+    setImportError('');
+    setImportSuccess('');
+  }
+
+  function handleCsvFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportFileName(file.name);
+    setImportError('');
+    setImportSuccess('');
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = String(event.target?.result ?? '');
+        const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
+        if (lines.length < 2) {
+          setImportError('CSV file must have a header row and at least one product row.');
+          return;
+        }
+
+        const parseLine = (l: string) => {
+          const res = [];
+          let cur = '';
+          let inQuotes = false;
+          for (let i = 0; i < l.length; i++) {
+            const ch = l[i];
+            if (ch === '"') inQuotes = !inQuotes;
+            else if (ch === ',' && !inQuotes) { res.push(cur.trim().replace(/^"|"$/g, '')); cur = ''; }
+            else cur += ch;
+          }
+          res.push(cur.trim().replace(/^"|"$/g, ''));
+          return res;
+        };
+
+        const headers = parseLine(lines[0]).map(h => h.toLowerCase().replace(/[\s_-]+/g, ''));
+        const parsed = [];
+        for (let i = 1; i < lines.length; i++) {
+          const cols = parseLine(lines[i]);
+          const map: Record<string, string> = {};
+          headers.forEach((h, idx) => { map[h] = cols[idx] ?? ''; });
+          const sku = map.sku || map.productsku || map.itemcode || cols[0] || '';
+          const name = map.name || map.productname || map.title || map.itemname || cols[1] || '';
+          if (!sku && !name) continue;
+
+          parsed.push({
+            sku: sku.trim(),
+            name: name.trim(),
+            category: map.category || map.group || 'General',
+            quantity: Math.max(0, parseInt(map.quantity || map.qty || map.stock || '0', 10) || 0),
+            reorderLevel: Math.max(0, parseInt(map.reorderlevel || map.reorder || map.min || '5', 10) || 5),
+            costPrice: Math.max(0, parseFloat(map.costprice || map.cost || map.purchaseprice || '0') || 0),
+            unitPrice: Math.max(0, parseFloat(map.unitprice || map.price || map.retailprice || map.sellingprice || '0') || 0),
+            supplier: map.supplier || map.vendor || '',
+            description: map.description || map.notes || '',
+          });
+        }
+
+        if (parsed.length === 0) {
+          setImportError('No valid product rows found. Ensure rows have SKU and Name.');
+        } else {
+          setImportRows(parsed);
+        }
+      } catch (err: any) {
+        setImportError(`Failed to parse CSV file: ${err.message}`);
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  async function executeImport() {
+    if (importRows.length === 0) return;
+    setImportLoading(true);
+    setImportError('');
+    try {
+      const res = await fetch('/api/products/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: importRows }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to import products');
+      setImportSuccess(`Successfully imported ${data.imported} new products and updated ${data.updated} existing items!`);
+      await refresh();
+      setTimeout(() => {
+        setDialog(null);
+        setImportRows([]);
+        setImportFileName('');
+        setImportSuccess('');
+      }, 1500);
+    } catch (err: any) {
+      setImportError(err.message || 'Import failed');
+    } finally {
+      setImportLoading(false);
+    }
+  }
+
+  function downloadTemplate() {
+    const csv = "sku,name,category,quantity,reorderLevel,costPrice,unitPrice,supplier,description\nPROD-001,Sample Product A,Hardware,25,5,12.50,29.99,Acme Supplies,High durability steel item\nPROD-002,Sample Product B,Electronics,10,3,45.00,89.99,Tech Parts,USB-C powered device\n";
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = "stock_upload_template.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   async function submitProduct(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -448,7 +581,21 @@ function ProductsPage() {
 
   const selected = productQuery.data;
   return <Shell active="products">
-    <PageHeading kicker="PRODUCT CATALOG" title="Products" description="The items you sell, parts you use, and supplies you keep." action={<button className="btn btn-primary" onClick={() => open('create')} data-testid="button-add-product"><Plus size={16} /> Add product</button>} />
+    <PageHeading
+      kicker="PRODUCT CATALOG"
+      title="Products"
+      description="The items you sell, parts you use, and supplies you keep."
+      action={
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-outline" onClick={() => open('import')} data-testid="button-upload-stock">
+            <Upload size={16} /> Upload Stock (CSV)
+          </button>
+          <button className="btn btn-primary" onClick={() => open('create')} data-testid="button-add-product">
+            <Plus size={16} /> Add product
+          </button>
+        </div>
+      }
+    />
     <section className="catalog-panel">
       <div className="catalog-toolbar"><div className="search-field"><Search size={17} /><input type="search" placeholder="Search name, SKU, supplier…" value={search} onChange={e => setSearch(e.target.value)} aria-label="Search products" data-testid="input-search-products" />{search && <button aria-label="Clear search" onClick={() => setSearch('')} data-testid="button-clear-search"><X size={15} /></button>}</div>
         <div className="filter-control"><SlidersHorizontal size={15} /><label htmlFor="category-filter">Category</label><select id="category-filter" value={category} onChange={e => setCategory(e.target.value)} data-testid="select-category-filter"><option value="">All categories</option>{categoryOptions.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
@@ -540,6 +687,85 @@ function ProductsPage() {
         <div className="modal-actions"><button className="btn btn-outline" onClick={() => open('stock', selected.id)} data-testid="button-detail-adjust-stock"><Boxes size={16} /> Adjust stock</button><button className="btn btn-primary" onClick={() => open('edit', selected.id)} data-testid="button-detail-edit"><Pencil size={15} /> Edit product</button></div>
       </div>}
     </Modal>}
+
+    {dialog === 'import' && (
+      <Modal
+        title="Upload Stock (CSV Bulk Import)"
+        subtitle="Quickly upload a CSV file to add or update multiple products in your inventory."
+        onClose={() => { setDialog(null); setImportRows([]); setImportError(''); setImportSuccess(''); }}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f5f4ef', padding: '12px 16px', borderRadius: 8, fontSize: 13 }}>
+            <span>Need the format? Download our ready template:</span>
+            <button type="button" className="btn btn-small btn-outline" onClick={downloadTemplate}>
+              <ArrowDownToLine size={14} /> Download Template (.csv)
+            </button>
+          </div>
+
+          <label className="form-field">
+            <span>Choose CSV File <small>Required columns: sku, name. Optional: category, quantity, costPrice, unitPrice, supplier</small></span>
+            <input type="file" accept=".csv" onChange={handleCsvFile} data-testid="input-csv-file" style={{ padding: '8px' }} />
+          </label>
+
+          {importError && (
+            <div className="form-error" role="alert"><AlertCircle size={15} />{importError}</div>
+          )}
+
+          {importSuccess && (
+            <div style={{ background: '#eef8f3', color: '#1f6b45', padding: '10px 14px', borderRadius: 8, fontSize: 13, fontWeight: 500 }}>
+              ✓ {importSuccess}
+            </div>
+          )}
+
+          {importRows.length > 0 && (
+            <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid #e2ded5', borderRadius: 8 }}>
+              <table style={{ width: '100%', fontSize: 12, textAlign: 'left', borderCollapse: 'collapse' }}>
+                <thead style={{ background: '#f8f7f4', position: 'sticky', top: 0 }}>
+                  <tr>
+                    <th style={{ padding: '8px 10px' }}>SKU</th>
+                    <th style={{ padding: '8px 10px' }}>Name</th>
+                    <th style={{ padding: '8px 10px' }}>Category</th>
+                    <th style={{ padding: '8px 10px' }}>Qty</th>
+                    <th style={{ padding: '8px 10px' }}>Cost</th>
+                    <th style={{ padding: '8px 10px' }}>Selling</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {importRows.slice(0, 8).map((r, i) => (
+                    <tr key={i} style={{ borderTop: '1px solid #eee' }}>
+                      <td style={{ padding: '6px 10px', fontFamily: 'monospace' }}>{r.sku}</td>
+                      <td style={{ padding: '6px 10px' }}><b>{r.name}</b></td>
+                      <td style={{ padding: '6px 10px' }}>{r.category}</td>
+                      <td style={{ padding: '6px 10px' }}>{r.quantity}</td>
+                      <td style={{ padding: '6px 10px' }}>${r.costPrice}</td>
+                      <td style={{ padding: '6px 10px' }}>${r.unitPrice}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {importRows.length > 8 && (
+                <div style={{ padding: '6px 10px', fontSize: 11, color: '#777', textAlign: 'center', background: '#faf9f6' }}>
+                  ...and {importRows.length - 8} more products ready to import
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="modal-actions">
+            <button type="button" className="btn btn-quiet" onClick={() => setDialog(null)}>Cancel</button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={importRows.length === 0 || importLoading}
+              onClick={executeImport}
+              data-testid="button-execute-import"
+            >
+              {importLoading ? 'Uploading & importing…' : `Import ${importRows.length} Product${importRows.length === 1 ? '' : 's'}`}
+            </button>
+          </div>
+        </div>
+      </Modal>
+    )}
   </Shell>;
 }
 
@@ -598,6 +824,56 @@ function AdminUsersPage() {
   const updateRole = useUpdateUserRole();
   const qc = useQueryClient();
 
+  const [addUserOpen, setAddUserOpen] = useState(false);
+  const [newUserName, setNewUserName] = useState('');
+  const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserRole, setNewUserRole] = useState<'user' | 'admin'>('user');
+  const [addUserLoading, setAddUserLoading] = useState(false);
+  const [addUserError, setAddUserError] = useState('');
+
+  async function submitAddUser(e: FormEvent) {
+    e.preventDefault();
+    if (!newUserEmail.trim()) return;
+    setAddUserLoading(true);
+    setAddUserError('');
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newUserName.trim() || undefined,
+          email: newUserEmail.trim(),
+          role: newUserRole,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create user account');
+      await qc.invalidateQueries({ queryKey: getListAdminUsersQueryKey() });
+      setAddUserOpen(false);
+      setNewUserName('');
+      setNewUserEmail('');
+      setNewUserRole('user');
+    } catch (err: any) {
+      setAddUserError(err.message || 'Failed to create user');
+    } finally {
+      setAddUserLoading(false);
+    }
+  }
+
+  async function deleteUser(u: UserProfile) {
+    if (!window.confirm(`Delete user ${u.name || u.email}? This will also remove any products assigned to them.`)) return;
+    try {
+      const res = await fetch(`/api/admin/users/${u.clerkUserId}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to delete user');
+      }
+      await qc.invalidateQueries({ queryKey: getListAdminUsersQueryKey() });
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete user');
+    }
+  }
+
   async function toggleRole(user: UserProfile) {
     const newRole = user.role === 'admin' ? 'user' : 'admin';
     const confirmMessage = user.role === 'admin'
@@ -619,7 +895,12 @@ function AdminUsersPage() {
     <PageHeading
       kicker="ACCESS &amp; PERMISSIONS"
       title="Team &amp; User Accounts"
-      description="View registered accounts, manage business permissions, and assign administrator roles."
+      description="View registered accounts, manually provision team members, and assign administrator roles."
+      action={
+        <button className="btn btn-primary" onClick={() => setAddUserOpen(true)} data-testid="button-add-user">
+          <Plus size={16} /> Add user account
+        </button>
+      }
     />
     {updateRole.isError && (
       <div className="error-panel" role="alert">
@@ -664,13 +945,24 @@ function AdminUsersPage() {
                   <td><b>{u.productCount}</b> items</td>
                   <td className="mono">{new Date(u.createdAt).toLocaleDateString()}</td>
                   <td>
-                    <button
-                      className="btn btn-small btn-outline"
-                      disabled={updateRole.isPending}
-                      onClick={() => toggleRole(u)}
-                    >
-                      {u.role === 'admin' ? 'Demote to User' : 'Make Administrator'}
-                    </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <button
+                        className="btn btn-small btn-outline"
+                        disabled={updateRole.isPending}
+                        onClick={() => toggleRole(u)}
+                      >
+                        {u.role === 'admin' ? 'Demote to User' : 'Make Administrator'}
+                      </button>
+                      <button
+                        className="icon-button"
+                        style={{ color: '#a43f37' }}
+                        onClick={() => deleteUser(u)}
+                        title="Delete user account"
+                        data-testid={`button-delete-user-${u.clerkUserId}`}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -683,6 +975,64 @@ function AdminUsersPage() {
         </div>
       )}
     </section>
+
+    {addUserOpen && (
+      <Modal
+        title="Add User Account"
+        subtitle="Manually provision a team member or employee account."
+        onClose={() => { setAddUserOpen(false); setAddUserError(''); }}
+      >
+        <form onSubmit={submitAddUser} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <label className="form-field">
+            <span>Full Name</span>
+            <input
+              type="text"
+              required
+              placeholder="e.g. Rahul Sharma"
+              value={newUserName}
+              onChange={e => setNewUserName(e.target.value)}
+              data-testid="input-new-user-name"
+            />
+          </label>
+
+          <label className="form-field">
+            <span>Email Address</span>
+            <input
+              type="email"
+              required
+              placeholder="e.g. rahul@example.com"
+              value={newUserEmail}
+              onChange={e => setNewUserEmail(e.target.value)}
+              data-testid="input-new-user-email"
+            />
+          </label>
+
+          <label className="form-field">
+            <span>Account Role</span>
+            <select
+              value={newUserRole}
+              onChange={e => setNewUserRole(e.target.value as 'user' | 'admin')}
+              data-testid="select-new-user-role"
+              style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #dcd8ce' }}
+            >
+              <option value="user">Normal User (Access to own private inventory only)</option>
+              <option value="admin">Administrator (Full team &amp; system access)</option>
+            </select>
+          </label>
+
+          {addUserError && (
+            <div className="form-error" role="alert"><AlertCircle size={15} />{addUserError}</div>
+          )}
+
+          <div className="modal-actions">
+            <button type="button" className="btn btn-quiet" onClick={() => setAddUserOpen(false)}>Cancel</button>
+            <button type="submit" className="btn btn-primary" disabled={addUserLoading} data-testid="button-save-new-user">
+              {addUserLoading ? 'Creating user…' : 'Create User Account'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+    )}
   </Shell>;
 }
 

@@ -193,4 +193,75 @@ router.patch("/admin/users/:userId/role", requireAdmin, async (req, res): Promis
   );
 });
 
+router.post("/admin/users", requireAdmin, async (req, res): Promise<void> => {
+  const { email, name, role } = req.body;
+  if (!email || typeof email !== "string" || !email.includes("@")) {
+    res.status(400).json({ error: "Please provide a valid email address." });
+    return;
+  }
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanName = typeof name === "string" ? name.trim() : null;
+  const targetRole = role === "admin" ? "admin" : "user";
+  const manualUserId = `user_manual_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+  const [existing] = await db
+    .select()
+    .from(userProfilesTable)
+    .where(sql`lower(${userProfilesTable.email}) = lower(${cleanEmail})`)
+    .limit(1);
+
+  if (existing) {
+    res.status(409).json({ error: "A user account with this email address already exists." });
+    return;
+  }
+
+  const [created] = await db
+    .insert(userProfilesTable)
+    .values({
+      clerkUserId: manualUserId,
+      email: cleanEmail,
+      name: cleanName || cleanEmail.split("@")[0],
+      role: targetRole,
+    })
+    .returning();
+
+  if (targetRole === "admin") {
+    await db
+      .insert(adminUsersTable)
+      .values({ clerkUserId: manualUserId, email: cleanEmail })
+      .onConflictDoNothing();
+  }
+
+  res.status(201).json({
+    clerkUserId: created.clerkUserId,
+    email: created.email,
+    name: created.name,
+    role: created.role,
+    productCount: 0,
+    createdAt: created.createdAt.toISOString(),
+  });
+});
+
+router.delete("/admin/users/:userId", requireAdmin, async (req, res): Promise<void> => {
+  const rawParam = req.params.userId;
+  const targetUserId = Array.isArray(rawParam) ? rawParam[0] : rawParam;
+  if (!targetUserId) {
+    res.status(400).json({ error: "User ID is required." });
+    return;
+  }
+
+  // Prevent admin from deleting themselves
+  if (req.appUser?.userId === targetUserId) {
+    res.status(400).json({ error: "You cannot delete your own administrative account." });
+    return;
+  }
+
+  // Delete products owned by this user
+  await db.delete(productsTable).where(eq(productsTable.ownerUserId, targetUserId));
+  await db.delete(adminUsersTable).where(eq(adminUsersTable.clerkUserId, targetUserId));
+  await db.delete(userProfilesTable).where(eq(userProfilesTable.clerkUserId, targetUserId));
+
+  res.sendStatus(204);
+});
+
 export default router;

@@ -1,7 +1,7 @@
 import { clerkClient, getAuth } from "@clerk/express";
 import type { Request, Response, NextFunction } from "express";
-import { db, adminUsersTable, userProfilesTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, adminUsersTable, userProfilesTable, productsTable, stockMovementsTable } from "@workspace/db";
+import { eq, sql } from "drizzle-orm";
 import { logger } from "../lib/logger";
 
 export interface AuthenticatedUser {
@@ -90,6 +90,54 @@ export async function syncUserProfile(userId: string, req?: Request): Promise<Au
     existingAdmin ||
     (email && approvedEmail && email.toLowerCase() === approvedEmail.toLowerCase()),
   );
+
+  // Check if this email was previously manually created or seeded by an Admin
+  if (email) {
+    const [existingByEmail] = await db
+      .select()
+      .from(userProfilesTable)
+      .where(sql`lower(${userProfilesTable.email}) = lower(${email})`)
+      .limit(1);
+
+    if (existingByEmail && existingByEmail.clerkUserId !== userId) {
+      const oldId = existingByEmail.clerkUserId;
+      const finalRole = existingByEmail.role === "admin" || shouldBeAdmin ? "admin" : "user";
+      
+      try {
+        await db
+          .update(userProfilesTable)
+          .set({ clerkUserId: userId, name: name || existingByEmail.name, role: finalRole, updatedAt: new Date() })
+          .where(eq(userProfilesTable.clerkUserId, oldId));
+
+        await db
+          .update(productsTable)
+          .set({ ownerUserId: userId })
+          .where(eq(productsTable.ownerUserId, oldId));
+
+        await db
+          .update(stockMovementsTable)
+          .set({ userId })
+          .where(eq(stockMovementsTable.userId, oldId));
+
+        if (finalRole === "admin") {
+          await db
+            .insert(adminUsersTable)
+            .values({ clerkUserId: userId, email })
+            .onConflictDoNothing();
+        }
+      } catch (err) {
+        logger.error({ err, userId, email }, "Failed to re-link pre-created profile");
+      }
+
+      return {
+        userId,
+        email: existingByEmail.email,
+        name: name || existingByEmail.name,
+        role: finalRole as "admin" | "user",
+        isAdmin: finalRole === "admin",
+      };
+    }
+  }
 
   const role = shouldBeAdmin ? "admin" : "user";
 

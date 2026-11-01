@@ -159,6 +159,98 @@ router.post("/products", async (req, res): Promise<void> => {
   }
 });
 
+router.post("/products/import", async (req, res): Promise<void> => {
+  const user = req.appUser!;
+  const { items } = req.body;
+
+  if (!Array.isArray(items) || items.length === 0) {
+    res.status(400).json({ error: "Please provide an array of items to import." });
+    return;
+  }
+
+  let imported = 0;
+  let updated = 0;
+  let skipped = 0;
+  const errors: string[] = [];
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (!item.sku || !item.name) {
+      skipped++;
+      errors.push(`Row ${i + 1}: SKU and Name are required.`);
+      continue;
+    }
+
+    const sku = String(item.sku).trim();
+    const name = String(item.name).trim();
+    const category = String(item.category || "General").trim();
+    const quantity = Math.max(0, parseInt(String(item.quantity ?? 0), 10) || 0);
+    const reorderLevel = Math.max(0, parseInt(String(item.reorderLevel ?? 5), 10) || 5);
+    const costPrice = Math.max(0, parseFloat(String(item.costPrice ?? 0)) || 0);
+    const unitPrice = Math.max(0, parseFloat(String(item.unitPrice ?? 0)) || 0);
+    const supplier = item.supplier ? String(item.supplier).trim() : null;
+    const description = item.description ? String(item.description).trim() : null;
+
+    try {
+      // Check if product with this SKU already exists for this owner
+      const [existing] = await db
+        .select()
+        .from(productsTable)
+        .where(
+          and(
+            eq(productsTable.ownerUserId, user.userId),
+            sql`lower(${productsTable.sku}) = lower(${sku})`,
+          ),
+        )
+        .limit(1);
+
+      if (existing) {
+        await db
+          .update(productsTable)
+          .set({
+            name,
+            category,
+            quantity,
+            reorderLevel,
+            costPrice,
+            unitPrice,
+            supplier,
+            description,
+            updatedAt: new Date(),
+          })
+          .where(eq(productsTable.id, existing.id));
+        updated++;
+      } else {
+        await db.insert(productsTable).values({
+          ownerUserId: user.userId,
+          sku,
+          name,
+          category,
+          quantity,
+          reorderLevel,
+          costPrice,
+          unitPrice,
+          supplier,
+          description,
+        });
+        imported++;
+      }
+    } catch (err: any) {
+      errors.push(`Row ${i + 1} (${sku}): ${err.message}`);
+      skipped++;
+    }
+  }
+
+  res.json({
+    success: true,
+    imported,
+    updated,
+    skipped,
+    total: items.length,
+    errors: errors.slice(0, 5),
+  });
+});
+
 router.get("/products/:id", async (req, res): Promise<void> => {
   const params = GetProductParams.safeParse(req.params);
   if (!params.success) {
