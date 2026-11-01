@@ -34,23 +34,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Setup Clerk authentication middleware
-const hasSecretKey =
-  process.env.CLERK_SECRET_KEY &&
-  !process.env.CLERK_SECRET_KEY.includes("REPLACE_ME");
-
-app.use(
-  clerkMiddleware({
-    publishableKey: process.env.CLERK_PUBLISHABLE_KEY,
-    secretKey: hasSecretKey ? process.env.CLERK_SECRET_KEY : undefined,
-    jwtKey: process.env.CLERK_JWT_KEY,
-  }),
-);
-
-// Mount API routes
-app.use("/api", router);
-
-// Serve static frontend in production or redirect in dev
+// Serve static frontend files first
 const clientDistPath = path.resolve(
   import.meta.dirname,
   "../../artifacts/inventory-manager/dist/public",
@@ -58,8 +42,37 @@ const clientDistPath = path.resolve(
 
 if (fs.existsSync(clientDistPath)) {
   app.use(express.static(clientDistPath));
+}
+
+// Setup Clerk authentication middleware on API routes if secret key is present
+const hasSecretKey = Boolean(
+  process.env.CLERK_SECRET_KEY &&
+    !process.env.CLERK_SECRET_KEY.includes("REPLACE_ME") &&
+    process.env.CLERK_SECRET_KEY.startsWith("sk_"),
+);
+
+if (hasSecretKey) {
+  try {
+    app.use(
+      "/api",
+      clerkMiddleware({
+        publishableKey: process.env.CLERK_PUBLISHABLE_KEY,
+        secretKey: process.env.CLERK_SECRET_KEY,
+        jwtKey: process.env.CLERK_JWT_KEY,
+      }),
+    );
+  } catch (err) {
+    logger.warn({ err }, "Could not initialize clerkMiddleware, using fallback");
+  }
+}
+
+// Mount API routes
+app.use("/api", router);
+
+// Serve index.html for frontend client routing or redirect in dev
+if (fs.existsSync(clientDistPath)) {
   app.use((req, res, next) => {
-    if (req.method === "GET" && req.accepts("html")) {
+    if (req.method === "GET" && !req.path.startsWith("/api") && req.accepts("html")) {
       res.sendFile(path.join(clientDistPath, "index.html"));
     } else {
       next();

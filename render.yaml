@@ -17,3 +17,4 @@ services:
         sync: false
       - key: ADMIN_EMAIL
         value: bhiseaditya46@gmail.com
+
