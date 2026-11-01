@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: stockroom-access
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: pnpm install && pnpm run build
+    startCommand: pnpm run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: CLERK_PUBLISHABLE_KEY
+        value: pk_test_cXVpY2stYnVjay05MzYuY2xlcmsuYWNjb3VudHMuZGV2JA
+      - key: CLERK_JWT_KEY
+        sync: false
+      - key: ADMIN_EMAIL
+        value: bhiseaditya46@gmail.com
