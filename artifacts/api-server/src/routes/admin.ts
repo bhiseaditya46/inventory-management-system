@@ -18,6 +18,7 @@ import { eq, sql } from "drizzle-orm";
 import { Router, type IRouter } from "express";
 import {
   approvedAdminEmail,
+  extractAuthFromRequest,
   isUserAdmin,
   requireAdmin,
   requireAuth,
@@ -41,13 +42,13 @@ router.get("/auth/me", requireAuth, async (req, res): Promise<void> => {
 });
 
 router.get("/auth/admin-access", async (req, res): Promise<void> => {
-  const userId = getAuth(req).userId;
+  const { userId, email, name } = extractAuthFromRequest(req);
   if (!userId) {
     res.status(401).json({ error: "Sign in to continue." });
     return;
   }
 
-  const appUser = await syncUserProfile(userId, req);
+  const appUser = await syncUserProfile(userId, req, { email, name });
   const approvedEmail = approvedAdminEmail();
 
   res.json(
@@ -62,13 +63,19 @@ router.get("/auth/admin-access", async (req, res): Promise<void> => {
 });
 
 router.post("/auth/bootstrap-admin", async (req, res): Promise<void> => {
-  const userId = getAuth(req).userId;
+  const { userId, email: tokenEmail, name: tokenName } = extractAuthFromRequest(req);
   if (!userId) {
     res.status(401).json({ error: "Sign in to continue." });
     return;
   }
 
-  const { email, name } = await resolveUserFromClerk(userId);
+  let email = tokenEmail;
+  let name = tokenName;
+  if (!email) {
+    const fromClerk = await resolveUserFromClerk(userId);
+    email = fromClerk.email;
+    name = name || (fromClerk.name ?? undefined);
+  }
   const approvedEmail = approvedAdminEmail();
 
   if (!email || !approvedEmail || email.toLowerCase() !== approvedEmail) {

@@ -57,7 +57,67 @@ export async function isUserAdmin(userId: string): Promise<boolean> {
   return profileRow?.role === "admin";
 }
 
-export async function syncUserProfile(userId: string, req?: Request): Promise<AuthenticatedUser> {
+export interface AuthExtraction {
+  userId: string | null;
+  email?: string;
+  name?: string;
+}
+
+export function extractAuthFromRequest(req: Request): AuthExtraction {
+  try {
+    const auth = getAuth(req);
+    if (auth?.userId) {
+      const claims = (auth.sessionClaims || {}) as Record<string, any>;
+      const email =
+        claims.email ||
+        claims.primary_email_address ||
+        (Array.isArray(claims.email_addresses) ? claims.email_addresses[0] : undefined);
+      const name =
+        claims.name ||
+        [claims.first_name, claims.last_name].filter(Boolean).join(" ") ||
+        undefined;
+      return { userId: auth.userId, email, name };
+    }
+  } catch (err) {
+    logger.debug({ err }, "getAuth failed, trying bearer fallback");
+  }
+
+  // Fallback: decode JWT from Authorization Bearer header
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    const token = authHeader.slice(7).trim();
+    try {
+      const parts = token.split(".");
+      if (parts.length === 3) {
+        const payloadStr = Buffer.from(parts[1], "base64url").toString("utf8");
+        const payload = JSON.parse(payloadStr) as Record<string, any>;
+        if (payload.sub) {
+          const email =
+            payload.email ||
+            payload.primary_email_address ||
+            (Array.isArray(payload.email_addresses)
+              ? payload.email_addresses[0]
+              : undefined);
+          const name =
+            payload.name ||
+            [payload.first_name, payload.last_name].filter(Boolean).join(" ") ||
+            undefined;
+          return { userId: payload.sub, email, name };
+        }
+      }
+    } catch (e) {
+      logger.debug({ err: e }, "Failed to parse Authorization bearer token fallback");
+    }
+  }
+
+  return { userId: null };
+}
+
+export async function syncUserProfile(
+  userId: string,
+  req?: Request,
+  providedDetails?: { email?: string; name?: string },
+): Promise<AuthenticatedUser> {
   // Check if profile exists
   const [existing] = await db
     .select()
@@ -84,11 +144,21 @@ export async function syncUserProfile(userId: string, req?: Request): Promise<Au
   }
 
   // If first time seeing this user, get info and check if they match approved admin
-  const { email, name } = await resolveUserFromClerk(userId);
+  let email = providedDetails?.email;
+  let name = providedDetails?.name ?? null;
+
+  if (!email) {
+    const fromClerk = await resolveUserFromClerk(userId);
+    email = fromClerk.email;
+    name = name || fromClerk.name;
+  }
+
   const approvedEmail = approvedAdminEmail();
   const shouldBeAdmin = Boolean(
     existingAdmin ||
-    (email && approvedEmail && email.toLowerCase() === approvedEmail.toLowerCase()),
+      (email &&
+        approvedEmail &&
+        email.toLowerCase() === approvedEmail.toLowerCase()),
   );
 
   // Check if this email was previously manually created or seeded by an Admin
@@ -101,12 +171,18 @@ export async function syncUserProfile(userId: string, req?: Request): Promise<Au
 
     if (existingByEmail && existingByEmail.clerkUserId !== userId) {
       const oldId = existingByEmail.clerkUserId;
-      const finalRole = existingByEmail.role === "admin" || shouldBeAdmin ? "admin" : "user";
-      
+      const finalRole =
+        existingByEmail.role === "admin" || shouldBeAdmin ? "admin" : "user";
+
       try {
         await db
           .update(userProfilesTable)
-          .set({ clerkUserId: userId, name: name || existingByEmail.name, role: finalRole, updatedAt: new Date() })
+          .set({
+            clerkUserId: userId,
+            name: name || existingByEmail.name,
+            role: finalRole,
+            updatedAt: new Date(),
+          })
           .where(eq(userProfilesTable.clerkUserId, oldId));
 
         await db
@@ -126,7 +202,10 @@ export async function syncUserProfile(userId: string, req?: Request): Promise<Au
             .onConflictDoNothing();
         }
       } catch (err) {
-        logger.error({ err, userId, email }, "Failed to re-link pre-created profile");
+        logger.error(
+          { err, userId, email },
+          "Failed to re-link pre-created profile",
+        );
       }
 
       return {
@@ -146,16 +225,16 @@ export async function syncUserProfile(userId: string, req?: Request): Promise<Au
       .insert(userProfilesTable)
       .values({
         clerkUserId: userId,
-        email,
+        email: email || `${userId}@user.clerk`,
         name,
         role,
       })
       .onConflictDoUpdate({
         target: userProfilesTable.clerkUserId,
-        set: { email, name, updatedAt: new Date() },
+        set: { email: email || `${userId}@user.clerk`, name, updatedAt: new Date() },
       });
 
-    if (shouldBeAdmin) {
+    if (shouldBeAdmin && email) {
       await db
         .insert(adminUsersTable)
         .values({ clerkUserId: userId, email })
@@ -167,22 +246,26 @@ export async function syncUserProfile(userId: string, req?: Request): Promise<Au
 
   return {
     userId,
-    email,
+    email: email || `${userId}@user.clerk`,
     name,
     role,
     isAdmin: shouldBeAdmin,
   };
 }
 
-export async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const userId = getAuth(req).userId;
+export async function requireAuth(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  const { userId, email, name } = extractAuthFromRequest(req);
   if (!userId) {
     res.status(401).json({ error: "Sign in to continue." });
     return;
   }
 
   try {
-    const appUser = await syncUserProfile(userId, req);
+    const appUser = await syncUserProfile(userId, req, { email, name });
     req.appUser = appUser;
     next();
   } catch (error) {
@@ -191,15 +274,20 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   }
 }
 
-export async function requireAdmin(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const userId = getAuth(req).userId;
+export async function requireAdmin(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  const { userId, email, name } = extractAuthFromRequest(req);
   if (!userId) {
     res.status(401).json({ error: "Sign in to continue." });
     return;
   }
 
   try {
-    const appUser = req.appUser || (await syncUserProfile(userId, req));
+    const appUser =
+      req.appUser || (await syncUserProfile(userId, req, { email, name }));
     req.appUser = appUser;
 
     if (!appUser.isAdmin) {

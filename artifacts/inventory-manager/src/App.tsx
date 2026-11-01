@@ -177,7 +177,7 @@ function Protected({ children, requireAdmin = false }: { children: ReactNode; re
 
   if (!isLoaded || (isSignedIn && me.isLoading)) return <AppLoading />;
   if (!isSignedIn) return <AccessGate signedOut />;
-  if (me.isError) return <AccessGate error />;
+  if (me.isError) return <AccessGate error errorMessage={(me.error as any)?.message} />;
 
   if (requireAdmin && !me.data?.isAdmin) {
     return <AccessGate registrationAllowed={!!adminAccess.data?.registrationAllowed} notAdmin />;
@@ -221,7 +221,7 @@ function LandingPage() {
   </main>;
 }
 
-function AccessGate({ signedOut = false, error = false, registrationAllowed = false, notAdmin = false }: { signedOut?: boolean; error?: boolean; registrationAllowed?: boolean; notAdmin?: boolean }) {
+function AccessGate({ signedOut = false, error = false, errorMessage, registrationAllowed = false, notAdmin = false }: { signedOut?: boolean; error?: boolean; errorMessage?: string; registrationAllowed?: boolean; notAdmin?: boolean }) {
   const bootstrap = useBootstrapAdmin();
   const qc = useQueryClient();
   const { signOut } = useClerk();
@@ -237,7 +237,7 @@ function AccessGate({ signedOut = false, error = false, registrationAllowed = fa
     <div className="gate-icon">{error ? <AlertCircle /> : signedOut ? <ShieldCheck /> : notAdmin ? <ShieldCheck /> : <XCircle />}</div>
     <span className="eyebrow">STOCKROOM ACCESS</span>
     <h1>{signedOut ? 'Your stock, in good order.' : error ? 'We couldn’t verify access.' : notAdmin ? 'Administrator privilege required.' : 'This account isn’t approved yet.'}</h1>
-    <p>{signedOut ? 'Sign in to your account to manage your inventory.' : error ? 'The access check could not be completed. Please try again in a moment.' : notAdmin ? 'You are signed in with a Normal User account. Administrator privileges are required to access this section.' : 'An administrator must approve this account before it can perform this action.'}</p>
+    <p>{signedOut ? 'Sign in to your account to manage your inventory.' : error ? (errorMessage ? `Access check error: ${errorMessage}` : 'The access check could not be completed. Please ensure the backend server is running.') : notAdmin ? 'You are signed in with a Normal User account. Administrator privileges are required to access this section.' : 'An administrator must approve this account before it can perform this action.'}</p>
     {signedOut ? <div className="gate-actions"><Link href="/sign-in" className="btn btn-primary">Sign in <ArrowRight size={16} /></Link><Link href="/" className="btn btn-quiet">Back to home</Link></div>
       : <div className="gate-actions">
           {error && <button className="btn btn-primary" onClick={() => { void qc.invalidateQueries({ queryKey: getGetCurrentUserQueryKey() }); void qc.invalidateQueries({ queryKey: getGetAdminAccessQueryKey() }); }} data-testid="button-retry-access">Try again</button>}
