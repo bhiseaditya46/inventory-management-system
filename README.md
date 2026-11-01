@@ -1,5 +1,9 @@
 # STOCKROOM ACCESS — Inventory Management System for Small Businesses
 
+[![GitHub Repository](https://img.shields.io/badge/GitHub-Repository-181717?logo=github&logoColor=white)](https://github.com/bhiseaditya46/inventory-management-system)
+
+**Repository URL**: [https://github.com/bhiseaditya46/inventory-management-system.git](https://github.com/bhiseaditya46/inventory-management-system.git)
+
 A modern, full-stack inventory management web application built for small businesses to track products, manage stock levels, monitor purchases and sales, handle replenishment alerts, and manage team permissions.
 
 ---
