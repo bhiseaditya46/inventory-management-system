@@ -56,7 +56,7 @@ test("multi-tenant inventory API: ownership, isolation, stock movements, and adm
 
   const app = express();
   app.use(express.json());
-  app.use(clerkMiddleware());
+  app.use(clerkMiddleware({ publishableKey: "pk_test_dGVzdC1jbGVyay1hcGkuaW52YWxpZCQ=" }));
   app.use((req, _res, next) => {
     const clerkAuth = (req as typeof req & { auth?: (options?: unknown) => Record<string, unknown> }).auth;
     if (clerkAuth) {

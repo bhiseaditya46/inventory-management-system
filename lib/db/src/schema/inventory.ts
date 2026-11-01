@@ -15,7 +15,7 @@ export const productsTable = pgTable(
   "inventory_products",
   {
     id: serial("id").primaryKey(),
-    ownerUserId: varchar("owner_user_id", { length: 255 }).notNull(),
+    ownerUserId: varchar("owner_user_id", { length: 255 }).notNull().default("admin_default"),
     sku: varchar("sku", { length: 80 }).notNull(),
     name: varchar("name", { length: 160 }).notNull(),
     category: varchar("category", { length: 80 }).notNull(),
