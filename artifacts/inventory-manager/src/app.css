@@ -186,3 +186,18 @@
 @media (max-width:400px) {
   .landing-actions .btn-quiet { font-size:10px;padding:8px 8px; }.landing-actions .btn-primary { font-size:10px;padding:8px; }.hero-buttons .text-link { font-size:10px; }.preview-card { padding:15px; }.preview-stats { gap:6px; }.preview-stats>div { padding:8px; }.preview-stats span { font-size:8px; }.preview-stats b { font-size:19px; }.report-banner-icon { display:none; }.metric-value { font-size:21px; }
 }
+
+.role-badge { display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:12px;font:700 9px var(--mono);text-transform:uppercase;letter-spacing:.5px; }
+.role-badge.admin { background:#e2ede4;color:#2c5941;border:1px solid #c2dcc8; }
+.role-badge.user { background:#f1eee4;color:#78694a;border:1px solid #ded5be; }
+.movements-section { margin-top:16px;padding-top:14px;border-top:1px solid #eeece5; }
+.movements-title { font-size:11px;font-weight:700;color:#2e4438;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between; }
+.movements-list { display:flex;flex-direction:column;gap:6px;max-height:160px;overflow-y:auto; }
+.movement-row { display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:#f8f7f2;border-radius:6px;font-size:10px; }
+.delta-badge { font:700 11px var(--mono);padding:2px 6px;border-radius:4px; }
+.delta-in { color:#2e6b3b;background:#e5f2e8; }
+.delta-out { color:#a84639;background:#fcebe8; }
+.movement-note { color:#757f76;font-size:9px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.movement-date { color:#9ea298;font-size:9px;font-family:var(--mono); }
+.users-panel { margin-top:20px;background:#fffdf8;border:1px solid #e9e5da;border-radius:9px;overflow:hidden;box-shadow:0 2px 7px #3f514008; }
+

@@ -9,4 +9,5 @@
 export interface AdminAccess {
   isAdmin: boolean;
   registrationAllowed: boolean;
+  role?: string;
 }

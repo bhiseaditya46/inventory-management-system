@@ -28,12 +28,14 @@ export const ListProductsQueryParams = zod.object({
 
 export const ListProductsResponseItem = zod.object({
   "id": zod.number().int(),
+  "ownerUserId": zod.string(),
   "sku": zod.string(),
   "name": zod.string(),
   "category": zod.string(),
   "quantity": zod.number().int(),
   "reorderLevel": zod.number().int(),
-  "unitPrice": zod.number(),
+  "unitPrice": zod.number().describe('Selling price'),
+  "costPrice": zod.number().describe('Purchase price'),
   "description": zod.string().nullable(),
   "supplier": zod.string().nullable(),
   "createdAt": zod.coerce.date(),
@@ -57,6 +59,9 @@ export const createProductBodyReorderLevelMin = 0;
 
 export const createProductBodyUnitPriceMin = 0;
 
+export const createProductBodyCostPriceDefault = 0;
+export const createProductBodyCostPriceMin = 0;
+
 export const createProductBodyDescriptionMax = 1000;
 
 export const createProductBodySupplierMax = 160;
@@ -69,19 +74,22 @@ export const CreateProductBody = zod.object({
   "category": zod.string().min(1).max(createProductBodyCategoryMax),
   "quantity": zod.number().int().min(createProductBodyQuantityMin),
   "reorderLevel": zod.number().int().min(createProductBodyReorderLevelMin),
-  "unitPrice": zod.number().min(createProductBodyUnitPriceMin),
+  "unitPrice": zod.number().min(createProductBodyUnitPriceMin).describe('Selling price'),
+  "costPrice": zod.number().min(createProductBodyCostPriceMin).default(createProductBodyCostPriceDefault).describe('Purchase price'),
   "description": zod.string().max(createProductBodyDescriptionMax).nullish(),
   "supplier": zod.string().max(createProductBodySupplierMax).nullish()
 })
 
 export const CreateProductResponse = zod.object({
   "id": zod.number().int(),
+  "ownerUserId": zod.string(),
   "sku": zod.string(),
   "name": zod.string(),
   "category": zod.string(),
   "quantity": zod.number().int(),
   "reorderLevel": zod.number().int(),
-  "unitPrice": zod.number(),
+  "unitPrice": zod.number().describe('Selling price'),
+  "costPrice": zod.number().describe('Purchase price'),
   "description": zod.string().nullable(),
   "supplier": zod.string().nullable(),
   "createdAt": zod.coerce.date(),
@@ -94,12 +102,14 @@ export const CreateProductResponse = zod.object({
  */
 export const ListLowStockProductsResponseItem = zod.object({
   "id": zod.number().int(),
+  "ownerUserId": zod.string(),
   "sku": zod.string(),
   "name": zod.string(),
   "category": zod.string(),
   "quantity": zod.number().int(),
   "reorderLevel": zod.number().int(),
-  "unitPrice": zod.number(),
+  "unitPrice": zod.number().describe('Selling price'),
+  "costPrice": zod.number().describe('Purchase price'),
   "description": zod.string().nullable(),
   "supplier": zod.string().nullable(),
   "createdAt": zod.coerce.date(),
@@ -120,12 +130,14 @@ export const GetProductParams = zod.object({
 
 export const GetProductResponse = zod.object({
   "id": zod.number().int(),
+  "ownerUserId": zod.string(),
   "sku": zod.string(),
   "name": zod.string(),
   "category": zod.string(),
   "quantity": zod.number().int(),
   "reorderLevel": zod.number().int(),
-  "unitPrice": zod.number(),
+  "unitPrice": zod.number().describe('Selling price'),
+  "costPrice": zod.number().describe('Purchase price'),
   "description": zod.string().nullable(),
   "supplier": zod.string().nullable(),
   "createdAt": zod.coerce.date(),
@@ -155,6 +167,8 @@ export const updateProductBodyReorderLevelMin = 0;
 
 export const updateProductBodyUnitPriceMin = 0;
 
+export const updateProductBodyCostPriceMin = 0;
+
 export const updateProductBodyDescriptionMax = 1000;
 
 export const updateProductBodySupplierMax = 160;
@@ -167,19 +181,22 @@ export const UpdateProductBody = zod.object({
   "category": zod.string().min(1).max(updateProductBodyCategoryMax).optional(),
   "quantity": zod.number().int().min(updateProductBodyQuantityMin).optional(),
   "reorderLevel": zod.number().int().min(updateProductBodyReorderLevelMin).optional(),
-  "unitPrice": zod.number().min(updateProductBodyUnitPriceMin).optional(),
+  "unitPrice": zod.number().min(updateProductBodyUnitPriceMin).optional().describe('Selling price'),
+  "costPrice": zod.number().min(updateProductBodyCostPriceMin).optional().describe('Purchase price'),
   "description": zod.string().max(updateProductBodyDescriptionMax).nullish(),
   "supplier": zod.string().max(updateProductBodySupplierMax).nullish()
 })
 
 export const UpdateProductResponse = zod.object({
   "id": zod.number().int(),
+  "ownerUserId": zod.string(),
   "sku": zod.string(),
   "name": zod.string(),
   "category": zod.string(),
   "quantity": zod.number().int(),
   "reorderLevel": zod.number().int(),
-  "unitPrice": zod.number(),
+  "unitPrice": zod.number().describe('Selling price'),
+  "costPrice": zod.number().describe('Purchase price'),
   "description": zod.string().nullable(),
   "supplier": zod.string().nullable(),
   "createdAt": zod.coerce.date(),
@@ -222,12 +239,14 @@ export const AdjustProductStockBody = zod.object({
 export const AdjustProductStockResponse = zod.object({
   "product": zod.object({
   "id": zod.number().int(),
+  "ownerUserId": zod.string(),
   "sku": zod.string(),
   "name": zod.string(),
   "category": zod.string(),
   "quantity": zod.number().int(),
   "reorderLevel": zod.number().int(),
-  "unitPrice": zod.number(),
+  "unitPrice": zod.number().describe('Selling price'),
+  "costPrice": zod.number().describe('Purchase price'),
   "description": zod.string().nullable(),
   "supplier": zod.string().nullable(),
   "createdAt": zod.coerce.date(),
@@ -236,11 +255,59 @@ export const AdjustProductStockResponse = zod.object({
   "movement": zod.object({
   "id": zod.number().int(),
   "productId": zod.number().int(),
+  "productName": zod.string().optional(),
+  "productSku": zod.string().optional(),
   "delta": zod.number().int(),
   "note": zod.string(),
+  "userId": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 })
 })
+
+
+/**
+ * @summary Get stock movement history for a specific product
+ */
+
+
+
+export const ListProductMovementsParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const ListProductMovementsResponseItem = zod.object({
+  "id": zod.number().int(),
+  "productId": zod.number().int(),
+  "productName": zod.string().optional(),
+  "productSku": zod.string().optional(),
+  "delta": zod.number().int(),
+  "note": zod.string(),
+  "userId": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})
+export const ListProductMovementsResponse = zod.array(ListProductMovementsResponseItem)
+
+
+/**
+ * @summary Get recent stock movement history
+ */
+export const listRecentMovementsQueryLimitDefault = 20;
+
+export const ListRecentMovementsQueryParams = zod.object({
+  "limit": zod.coerce.number().int().default(listRecentMovementsQueryLimitDefault)
+})
+
+export const ListRecentMovementsResponseItem = zod.object({
+  "id": zod.number().int(),
+  "productId": zod.number().int(),
+  "productName": zod.string().optional(),
+  "productSku": zod.string().optional(),
+  "delta": zod.number().int(),
+  "note": zod.string(),
+  "userId": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})
+export const ListRecentMovementsResponse = zod.array(ListRecentMovementsResponseItem)
 
 
 /**
@@ -249,7 +316,8 @@ export const AdjustProductStockResponse = zod.object({
 export const GetDashboardSummaryResponse = zod.object({
   "productCount": zod.number().int(),
   "totalUnits": zod.number().int(),
-  "inventoryValue": zod.number(),
+  "inventoryValue": zod.number().describe('Total selling value'),
+  "totalCostValue": zod.number().describe('Total purchase value'),
   "lowStockCount": zod.number().int(),
   "outOfStockCount": zod.number().int(),
   "categoryCount": zod.number().int()
@@ -263,11 +331,24 @@ export const DownloadInventoryReportResponse = zod.unknown()
 
 
 /**
+ * @summary Get current authenticated user details and role
+ */
+export const GetCurrentUserResponse = zod.object({
+  "userId": zod.string(),
+  "email": zod.string(),
+  "name": zod.string().nullish(),
+  "role": zod.string(),
+  "isAdmin": zod.boolean()
+})
+
+
+/**
  * @summary Check whether the current user is an administrator
  */
 export const GetAdminAccessResponse = zod.object({
   "isAdmin": zod.boolean(),
-  "registrationAllowed": zod.boolean()
+  "registrationAllowed": zod.boolean(),
+  "role": zod.string().optional()
 })
 
 
@@ -276,7 +357,43 @@ export const GetAdminAccessResponse = zod.object({
  */
 export const BootstrapAdminResponse = zod.object({
   "isAdmin": zod.boolean(),
-  "registrationAllowed": zod.boolean()
+  "registrationAllowed": zod.boolean(),
+  "role": zod.string().optional()
+})
+
+
+/**
+ * @summary View all registered users (Admin only)
+ */
+export const ListAdminUsersResponseItem = zod.object({
+  "clerkUserId": zod.string(),
+  "email": zod.string(),
+  "name": zod.string().nullish(),
+  "role": zod.string(),
+  "productCount": zod.number().int(),
+  "createdAt": zod.coerce.date()
+})
+export const ListAdminUsersResponse = zod.array(ListAdminUsersResponseItem)
+
+
+/**
+ * @summary Update a user's role (Admin only)
+ */
+export const UpdateUserRoleParams = zod.object({
+  "userId": zod.coerce.string()
+})
+
+export const UpdateUserRoleBody = zod.object({
+  "role": zod.enum(['admin', 'user'])
+})
+
+export const UpdateUserRoleResponse = zod.object({
+  "clerkUserId": zod.string(),
+  "email": zod.string(),
+  "name": zod.string().nullish(),
+  "role": zod.string(),
+  "productCount": zod.number().int(),
+  "createdAt": zod.coerce.date()
 })
 
 

@@ -11,12 +11,16 @@ export interface HealthStatus {
 
 export interface Product {
   id: number;
+  ownerUserId: string;
   sku: string;
   name: string;
   category: string;
   quantity: number;
   reorderLevel: number;
+  /** Selling price */
   unitPrice: number;
+  /** Purchase price */
+  costPrice: number;
   /** @nullable */
   description: string | null;
   /** @nullable */
@@ -45,8 +49,16 @@ export interface ProductInput {
   quantity: number;
   /** @minimum 0 */
   reorderLevel: number;
-  /** @minimum 0 */
+  /**
+     * Selling price
+     * @minimum 0
+     */
   unitPrice: number;
+  /**
+     * Purchase price
+     * @minimum 0
+     */
+  costPrice?: number;
   /**
      * @maxLength 1000
      * @nullable
@@ -79,8 +91,16 @@ export interface ProductUpdate {
   quantity?: number;
   /** @minimum 0 */
   reorderLevel?: number;
-  /** @minimum 0 */
+  /**
+     * Selling price
+     * @minimum 0
+     */
   unitPrice?: number;
+  /**
+     * Purchase price
+     * @minimum 0
+     */
+  costPrice?: number;
   /**
      * @maxLength 1000
      * @nullable
@@ -102,8 +122,12 @@ export interface StockAdjustmentInput {
 export interface StockMovement {
   id: number;
   productId: number;
+  productName?: string;
+  productSku?: string;
   delta: number;
   note: string;
+  /** @nullable */
+  userId?: string | null;
   createdAt: string;
 }
 
@@ -115,7 +139,10 @@ export interface StockAdjustmentResult {
 export interface DashboardSummary {
   productCount: number;
   totalUnits: number;
+  /** Total selling value */
   inventoryValue: number;
+  /** Total purchase value */
+  totalCostValue: number;
   lowStockCount: number;
   outOfStockCount: number;
   categoryCount: number;
@@ -124,6 +151,38 @@ export interface DashboardSummary {
 export interface AdminAccess {
   isAdmin: boolean;
   registrationAllowed: boolean;
+  role?: string;
+}
+
+export interface CurrentUser {
+  userId: string;
+  email: string;
+  /** @nullable */
+  name?: string | null;
+  role: string;
+  isAdmin: boolean;
+}
+
+export interface UserProfile {
+  clerkUserId: string;
+  email: string;
+  /** @nullable */
+  name?: string | null;
+  role: string;
+  productCount: number;
+  createdAt: string;
+}
+
+export type UserRoleUpdateRole = typeof UserRoleUpdateRole[keyof typeof UserRoleUpdateRole];
+
+
+export const UserRoleUpdateRole = {
+  admin: 'admin',
+  user: 'user',
+} as const;
+
+export interface UserRoleUpdate {
+  role: UserRoleUpdateRole;
 }
 
 export interface ErrorResponse {
@@ -136,12 +195,12 @@ export interface ErrorResponse {
 export type BadRequestResponse = ErrorResponse;
 
 /**
- * Sign-in required or administrator access denied
+ * Sign-in required or authentication denied
  */
 export type UnauthorizedResponse = ErrorResponse;
 
 /**
- * Signed-in user is not an administrator
+ * Sufficient permissions required
  */
 export type ForbiddenResponse = ErrorResponse;
 
@@ -151,7 +210,7 @@ export type ForbiddenResponse = ErrorResponse;
 export type NotFoundResponse = ErrorResponse;
 
 /**
- * A product with that SKU already exists
+ * A product with that SKU already exists in your inventory
  */
 export type ConflictResponse = ErrorResponse;
 
@@ -169,4 +228,8 @@ export const ListProductsStockStatus = {
   low: 'low',
   out: 'out',
 } as const;
+
+export type ListRecentMovementsParams = {
+limit?: number;
+};
 

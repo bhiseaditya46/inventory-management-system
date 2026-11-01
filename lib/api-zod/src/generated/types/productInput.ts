@@ -26,8 +26,16 @@ export interface ProductInput {
   quantity: number;
   /** @minimum 0 */
   reorderLevel: number;
-  /** @minimum 0 */
+  /**
+     * Selling price
+     * @minimum 0
+     */
   unitPrice: number;
+  /**
+     * Purchase price
+     * @minimum 0
+     */
+  costPrice?: number;
   /**
      * @maxLength 1000
      * @nullable

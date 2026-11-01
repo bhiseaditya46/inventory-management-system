@@ -8,6 +8,6 @@
 import type { ErrorResponse } from './errorResponse';
 
 /**
- * A product with that SKU already exists
+ * A product with that SKU already exists in your inventory
  */
 export type ConflictResponse = ErrorResponse;

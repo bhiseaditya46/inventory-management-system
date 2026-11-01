@@ -8,6 +8,6 @@
 import type { ErrorResponse } from './errorResponse';
 
 /**
- * Signed-in user is not an administrator
+ * Sufficient permissions required
  */
 export type ForbiddenResponse = ErrorResponse;

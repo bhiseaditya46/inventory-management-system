@@ -1,0 +1,57 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start API Server",
+      "type": "shell",
+      "command": "pnpm run dev:api",
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*",
+          "endsPattern": ".*listening.*"
+        }
+      },
+      "presentation": {
+        "group": "stockroom",
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "Start Frontend",
+      "type": "shell",
+      "command": "pnpm run dev:frontend",
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*",
+          "endsPattern": ".*Local:.*"
+        }
+      },
+      "presentation": {
+        "group": "stockroom",
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "Push Database Schema",
+      "type": "shell",
+      "command": "pnpm run db:push",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    }
+  ]
+}

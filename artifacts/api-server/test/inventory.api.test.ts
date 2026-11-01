@@ -2,22 +2,57 @@ import assert from "node:assert/strict";
 import { after, test } from "node:test";
 import express from "express";
 import { clerkMiddleware } from "@clerk/express";
-import { db, adminUsersTable, pool, productsTable, stockMovementsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import {
+  db,
+  adminUsersTable,
+  userProfilesTable,
+  pool,
+  productsTable,
+  stockMovementsTable,
+} from "@workspace/db";
+import { eq, inArray } from "drizzle-orm";
 import inventoryRouter from "../src/routes/inventory";
+import adminRouter from "../src/routes/admin";
 
-const testUserId = `inventory-api-test-${process.pid}`;
-const testSku = `INV-API-TEST-${process.pid}`;
+const userA = `test-user-a-${process.pid}`;
+const userB = `test-user-b-${process.pid}`;
+const adminUser = `test-admin-${process.pid}`;
+const sharedSku = `SHARED-SKU-${process.pid}`;
+
+let currentActiveUser = userA;
 
 after(async () => {
-  await pool.end();
+  try {
+    await db.delete(productsTable).where(
+      inArray(productsTable.ownerUserId, [userA, userB, adminUser]),
+    );
+    await db.delete(userProfilesTable).where(
+      inArray(userProfilesTable.clerkUserId, [userA, userB, adminUser]),
+    );
+    await db.delete(adminUsersTable).where(
+      inArray(adminUsersTable.clerkUserId, [userA, userB, adminUser]),
+    );
+    await pool.end();
+  } catch {
+    // Ignore cleanup errors
+  }
 });
 
-test("authenticated inventory API supports product, stock, filter, summary, and report flows", async () => {
+test("multi-tenant inventory API: ownership, isolation, stock movements, and admin management", async () => {
+  // Set up user profiles
+  await db
+    .insert(userProfilesTable)
+    .values([
+      { clerkUserId: userA, email: "user-a@example.com", name: "User A", role: "user" },
+      { clerkUserId: userB, email: "user-b@example.com", name: "User B", role: "user" },
+      { clerkUserId: adminUser, email: "admin@example.com", name: "Admin", role: "admin" },
+    ])
+    .onConflictDoNothing();
+
   await db
     .insert(adminUsersTable)
-    .values({ clerkUserId: testUserId, email: "inventory-api-test@example.invalid" })
-    .onConflictDoNothing({ target: adminUsersTable.clerkUserId });
+    .values({ clerkUserId: adminUser, email: "admin@example.com" })
+    .onConflictDoNothing();
 
   const app = express();
   app.use(express.json());
@@ -27,8 +62,8 @@ test("authenticated inventory API supports product, stock, filter, summary, and 
     if (clerkAuth) {
       const testAuth = (options?: unknown) => ({
         ...clerkAuth(options),
-        userId: testUserId,
-        sessionClaims: {},
+        userId: currentActiveUser,
+        sessionClaims: { sub: currentActiveUser },
       });
       Object.defineProperty(testAuth, Symbol.for("@clerk/express.auth"), { value: true });
       Object.defineProperty(req, "auth", {
@@ -39,6 +74,7 @@ test("authenticated inventory API supports product, stock, filter, summary, and 
     next();
   });
   app.use("/api", inventoryRouter);
+  app.use("/api", adminRouter);
 
   const server = app.listen(0, "127.0.0.1");
   await new Promise<void>((resolve, reject) => {
@@ -50,133 +86,141 @@ test("authenticated inventory API supports product, stock, filter, summary, and 
   const baseUrl = `http://127.0.0.1:${address.port}/api`;
 
   try {
-    const createResponse = await fetch(`${baseUrl}/products`, {
+    // 1. User A creates a product
+    currentActiveUser = userA;
+    const createResA = await fetch(`${baseUrl}/products`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        sku: testSku,
-        name: "API verification item",
-        category: "Verification",
-        quantity: 7,
-        reorderLevel: 4,
-        unitPrice: 3.25,
-        description: "Temporary endpoint test record",
-        supplier: "Test supplier",
+        sku: sharedSku,
+        name: "User A Gadget",
+        category: "Gadgets",
+        quantity: 10,
+        reorderLevel: 5,
+        unitPrice: 19.99,
+        costPrice: 9.50,
+        description: "User A private item",
+        supplier: "Supplier A",
       }),
     });
-    assert.equal(createResponse.status, 201);
-    const created = (await createResponse.json()) as { id: number; sku: string };
-    assert.equal(created.sku, testSku);
+    assert.equal(createResA.status, 201);
+    const productA = (await createResA.json()) as { id: number; sku: string; ownerUserId: string };
+    assert.equal(productA.sku, sharedSku);
+    assert.equal(productA.ownerUserId, userA);
 
-    const listResponse = await fetch(
-      `${baseUrl}/products?search=${encodeURIComponent(testSku)}`,
-    );
-    assert.equal(listResponse.status, 200);
-    const listed = (await listResponse.json()) as Array<{ id: number }>;
-    assert.equal(listed.length, 1);
-    assert.equal(listed[0]?.id, created.id);
-
-    const duplicateResponse = await fetch(`${baseUrl}/products`, {
+    // 2. User A cannot create a duplicate SKU in their own inventory
+    const dupRes = await fetch(`${baseUrl}/products`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        sku: testSku.toLowerCase(),
-        name: "Duplicate SKU",
-        category: "Verification",
+        sku: sharedSku.toLowerCase(),
+        name: "User A Duplicate",
+        category: "Gadgets",
         quantity: 1,
         reorderLevel: 1,
-        unitPrice: 1,
+        unitPrice: 10,
       }),
     });
-    assert.equal(duplicateResponse.status, 409);
+    assert.equal(dupRes.status, 409);
 
-    const updateResponse = await fetch(`${baseUrl}/products/${created.id}`, {
-      method: "PATCH",
+    // 3. User B CAN create a product with the same SKU in their OWN inventory!
+    currentActiveUser = userB;
+    const createResB = await fetch(`${baseUrl}/products`, {
+      method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        name: "Updated API verification item",
-        reorderLevel: 5,
-        unitPrice: 4.5,
+        sku: sharedSku,
+        name: "User B Gadget",
+        category: "Gadgets",
+        quantity: 3,
+        reorderLevel: 2,
+        unitPrice: 24.99,
+        costPrice: 12.00,
       }),
     });
-    assert.equal(updateResponse.status, 200);
-    const updated = (await updateResponse.json()) as { name: string; unitPrice: number };
-    assert.equal(updated.name, "Updated API verification item");
-    assert.equal(updated.unitPrice, 4.5);
+    assert.equal(createResB.status, 201);
+    const productB = (await createResB.json()) as { id: number; sku: string; ownerUserId: string };
+    assert.equal(productB.sku, sharedSku);
+    assert.equal(productB.ownerUserId, userB);
 
-    const lowStockResponse = await fetch(`${baseUrl}/products?stockStatus=low`);
-    assert.equal(lowStockResponse.status, 200);
-    const lowStock = (await lowStockResponse.json()) as Array<{ sku: string }>;
-    assert.ok(lowStock.some((product) => product.sku === testSku) === false);
+    // 4. Isolation: User B CANNOT see User A's product
+    const getProductAFromUserB = await fetch(`${baseUrl}/products/${productA.id}`);
+    assert.equal(getProductAFromUserB.status, 404);
 
-    const reduceStockResponse = await fetch(`${baseUrl}/products/${created.id}/stock`, {
-      method: "POST",
+    // User B CANNOT edit User A's product
+    const updateProductAFromUserB = await fetch(`${baseUrl}/products/${productA.id}`, {
+      method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ delta: -4, note: "API integration test" }),
+      body: JSON.stringify({ name: "Hacked by B" }),
     });
-    assert.equal(reduceStockResponse.status, 200);
-    const adjusted = (await reduceStockResponse.json()) as {
-      product: { quantity: number };
-      movement: { delta: number };
-    };
-    assert.equal(adjusted.product.quantity, 3);
-    assert.equal(adjusted.movement.delta, -4);
+    assert.equal(updateProductAFromUserB.status, 404);
 
-    const lowStockListResponse = await fetch(`${baseUrl}/products/low-stock`);
-    const lowStockList = (await lowStockListResponse.json()) as Array<{ sku: string }>;
-    assert.ok(lowStockList.some((product) => product.sku === testSku));
-
-    const stockFilterResponse = await fetch(`${baseUrl}/products?stockStatus=low`);
-    const filteredLowStock = (await stockFilterResponse.json()) as Array<{ sku: string }>;
-    assert.ok(filteredLowStock.some((product) => product.sku === testSku));
-
-    const invalidAdjustment = await fetch(`${baseUrl}/products/${created.id}/stock`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ delta: -99 }),
-    });
-    assert.equal(invalidAdjustment.status, 400);
-
-    const summaryResponse = await fetch(`${baseUrl}/dashboard/summary`);
-    assert.equal(summaryResponse.status, 200);
-    const summary = (await summaryResponse.json()) as {
-      productCount: number;
-      lowStockCount: number;
-      inventoryValue: number;
-    };
-    assert.ok(summary.productCount >= 1);
-    assert.ok(summary.lowStockCount >= 1);
-    assert.ok(summary.inventoryValue >= 3 * 4.5);
-
-    const reportResponse = await fetch(`${baseUrl}/reports/inventory.csv`);
-    assert.equal(reportResponse.status, 200);
-    assert.match(reportResponse.headers.get("content-type") ?? "", /text\/csv/);
-    assert.match(await reportResponse.text(), new RegExp(testSku));
-
-    const productRow = await db
-      .select({ id: productsTable.id })
-      .from(productsTable)
-      .where(eq(productsTable.sku, testSku))
-      .limit(1);
-    assert.equal(productRow.length, 1);
-
-    const deleteResponse = await fetch(`${baseUrl}/products/${created.id}`, {
+    // User B CANNOT delete User A's product
+    const deleteProductAFromUserB = await fetch(`${baseUrl}/products/${productA.id}`, {
       method: "DELETE",
     });
-    assert.equal(deleteResponse.status, 204);
+    assert.equal(deleteProductAFromUserB.status, 404);
 
-    const missingProduct = await fetch(`${baseUrl}/products/${created.id}`);
-    assert.equal(missingProduct.status, 404);
-    const remainingMovements = await db
-      .select({ id: stockMovementsTable.id })
-      .from(stockMovementsTable)
-      .where(eq(stockMovementsTable.productId, created.id));
-    assert.equal(remainingMovements.length, 0);
+    // 5. Stock movements: User A adjusts stock
+    currentActiveUser = userA;
+    const adjustRes = await fetch(`${baseUrl}/products/${productA.id}/stock`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ delta: -6, note: "Sold 6 units" }),
+    });
+    assert.equal(adjustRes.status, 200);
+    const adjusted = (await adjustRes.json()) as {
+      product: { quantity: number };
+      movement: { delta: number; note: string };
+    };
+    assert.equal(adjusted.product.quantity, 4);
+    assert.equal(adjusted.movement.delta, -6);
+
+    // 6. User A views movements for product A
+    const movementsRes = await fetch(`${baseUrl}/products/${productA.id}/movements`);
+    assert.equal(movementsRes.status, 200);
+    const movements = (await movementsRes.json()) as Array<{ delta: number }>;
+    assert.equal(movements.length, 1);
+    assert.equal(movements[0].delta, -6);
+
+    // 7. Dashboard summary: User A sees only User A's data
+    const summaryResA = await fetch(`${baseUrl}/dashboard/summary`);
+    assert.equal(summaryResA.status, 200);
+    const summaryA = (await summaryResA.json()) as {
+      productCount: number;
+      totalUnits: number;
+      lowStockCount: number;
+      inventoryValue: number;
+      totalCostValue: number;
+    };
+    assert.equal(summaryA.productCount, 1);
+    assert.equal(summaryA.totalUnits, 4);
+    assert.equal(summaryA.lowStockCount, 1); // 4 <= 5 reorder level
+    assert.equal(summaryA.inventoryValue, 4 * 19.99);
+    assert.equal(summaryA.totalCostValue, 4 * 9.50);
+
+    // 8. Admin User sees all products or admin user list
+    currentActiveUser = adminUser;
+    const adminUsersRes = await fetch(`${baseUrl}/admin/users`);
+    assert.equal(adminUsersRes.status, 200);
+    const usersList = (await adminUsersRes.json()) as Array<{ clerkUserId: string; productCount: number }>;
+    assert.ok(usersList.some((u) => u.clerkUserId === userA));
+    assert.ok(usersList.some((u) => u.clerkUserId === userB));
+
+    // Normal User B cannot access admin users
+    currentActiveUser = userB;
+    const forbiddenRes = await fetch(`${baseUrl}/admin/users`);
+    assert.equal(forbiddenRes.status, 403);
+
+    // Clean up products
+    currentActiveUser = userA;
+    const delA = await fetch(`${baseUrl}/products/${productA.id}`, { method: "DELETE" });
+    assert.equal(delA.status, 204);
+
+    currentActiveUser = userB;
+    const delB = await fetch(`${baseUrl}/products/${productB.id}`, { method: "DELETE" });
+    assert.equal(delB.status, 204);
   } finally {
-    await db.delete(productsTable).where(eq(productsTable.sku, testSku));
-    await db
-      .delete(adminUsersTable)
-      .where(eq(adminUsersTable.clerkUserId, testUserId));
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });

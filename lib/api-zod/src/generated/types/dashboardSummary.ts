@@ -9,7 +9,10 @@
 export interface DashboardSummary {
   productCount: number;
   totalUnits: number;
+  /** Total selling value */
   inventoryValue: number;
+  /** Total purchase value */
+  totalCostValue: number;
   lowStockCount: number;
   outOfStockCount: number;
   categoryCount: number;

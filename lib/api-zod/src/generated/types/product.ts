@@ -8,12 +8,16 @@
 
 export interface Product {
   id: number;
+  ownerUserId: string;
   sku: string;
   name: string;
   category: string;
   quantity: number;
   reorderLevel: number;
+  /** Selling price */
   unitPrice: number;
+  /** Purchase price */
+  costPrice: number;
   /** @nullable */
   description: string | null;
   /** @nullable */

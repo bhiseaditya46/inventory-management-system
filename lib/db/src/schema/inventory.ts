@@ -15,12 +15,20 @@ export const productsTable = pgTable(
   "inventory_products",
   {
     id: serial("id").primaryKey(),
+    ownerUserId: varchar("owner_user_id", { length: 255 }).notNull(),
     sku: varchar("sku", { length: 80 }).notNull(),
     name: varchar("name", { length: 160 }).notNull(),
     category: varchar("category", { length: 80 }).notNull(),
     quantity: integer("quantity").notNull().default(0),
     reorderLevel: integer("reorder_level").notNull().default(5),
     unitPrice: numeric("unit_price", {
+      precision: 12,
+      scale: 2,
+      mode: "number",
+    })
+      .notNull()
+      .default(0),
+    costPrice: numeric("cost_price", {
       precision: 12,
       scale: 2,
       mode: "number",
@@ -38,9 +46,11 @@ export const productsTable = pgTable(
       .$onUpdate(() => new Date()),
   },
   (table) => [
-    uniqueIndex("inventory_products_sku_lower_unique").on(
+    uniqueIndex("inventory_products_owner_sku_lower_unique").on(
+      table.ownerUserId,
       sql`lower(${table.sku})`,
     ),
+    index("inventory_products_owner_idx").on(table.ownerUserId),
     index("inventory_products_category_idx").on(table.category),
   ],
 );
@@ -53,6 +63,20 @@ export const adminUsersTable = pgTable("inventory_admin_users", {
     .defaultNow(),
 });
 
+export const userProfilesTable = pgTable("inventory_user_profiles", {
+  clerkUserId: varchar("clerk_user_id", { length: 255 }).primaryKey(),
+  email: varchar("email", { length: 320 }).notNull(),
+  name: varchar("name", { length: 255 }),
+  role: varchar("role", { length: 50 }).notNull().default("user"), // 'admin' | 'user'
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
 export const stockMovementsTable = pgTable(
   "inventory_stock_movements",
   {
@@ -62,9 +86,13 @@ export const stockMovementsTable = pgTable(
       .references(() => productsTable.id, { onDelete: "cascade" }),
     delta: integer("delta").notNull(),
     note: varchar("note", { length: 300 }).notNull().default(""),
+    userId: varchar("user_id", { length: 255 }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
-  (table) => [index("inventory_stock_movements_product_idx").on(table.productId)],
+  (table) => [
+    index("inventory_stock_movements_product_idx").on(table.productId),
+    index("inventory_stock_movements_user_idx").on(table.userId),
+  ],
 );

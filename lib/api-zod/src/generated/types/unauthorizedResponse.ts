@@ -8,6 +8,6 @@
 import type { ErrorResponse } from './errorResponse';
 
 /**
- * Sign-in required or administrator access denied
+ * Sign-in required or authentication denied
  */
 export type UnauthorizedResponse = ErrorResponse;

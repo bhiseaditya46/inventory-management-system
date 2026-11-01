@@ -1,0 +1,15 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug API Server (TSX)",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["run", "dev:api"],
+      "console": "integratedTerminal",
+      "restart": true,
+      "internalConsoleOptions": "neverOpen"
+    }
+  ]
+}

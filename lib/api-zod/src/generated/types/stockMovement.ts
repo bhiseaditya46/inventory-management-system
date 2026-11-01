@@ -9,7 +9,11 @@
 export interface StockMovement {
   id: number;
   productId: number;
+  productName?: string;
+  productSku?: string;
   delta: number;
   note: string;
+  /** @nullable */
+  userId?: string | null;
   createdAt: Date;
 }

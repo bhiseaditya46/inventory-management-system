@@ -17,7 +17,9 @@ tags:
   - name: reports
     description: Inventory reports
   - name: auth
-    description: Administrator access
+    description: User and Administrator access
+  - name: admin
+    description: Administrative management
 paths:
   /healthz:
     get:
@@ -164,6 +166,44 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+  /products/{id}/movements:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: integer, minimum: 1 }
+    get:
+      operationId: listProductMovements
+      tags: [products]
+      summary: Get stock movement history for a specific product
+      responses:
+        "200":
+          description: List of stock movements
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/StockMovement" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /movements:
+    get:
+      operationId: listRecentMovements
+      tags: [products]
+      summary: Get recent stock movement history
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, default: 20 }
+      responses:
+        "200":
+          description: Recent stock movements
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/StockMovement" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /dashboard/summary:
     get:
       operationId: getDashboardSummary
@@ -189,6 +229,18 @@ paths:
             text/csv:
               schema: { type: string }
         "401": { $ref: "#/components/responses/Unauthorized" }
+  /auth/me:
+    get:
+      operationId: getCurrentUser
+      tags: [auth]
+      summary: Get current authenticated user details and role
+      responses:
+        "200":
+          description: Current user profile
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CurrentUser" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /auth/admin-access:
     get:
       operationId: getAdminAccess
@@ -213,6 +265,46 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/AdminAccess" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+  /admin/users:
+    get:
+      operationId: listAdminUsers
+      tags: [admin]
+      summary: View all registered users (Admin only)
+      responses:
+        "200":
+          description: List of registered users
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/UserProfile" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /admin/users/{userId}/role:
+    parameters:
+      - in: path
+        name: userId
+        required: true
+        schema: { type: string }
+    patch:
+      operationId: updateUserRole
+      tags: [admin]
+      summary: Update a user's role (Admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UserRoleUpdate" }
+      responses:
+        "200":
+          description: Updated user profile
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserProfile" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
 components:
   responses:
     BadRequest:
@@ -221,12 +313,12 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/ErrorResponse" }
     Unauthorized:
-      description: Sign-in required or administrator access denied
+      description: Sign-in required or authentication denied
       content:
         application/json:
           schema: { $ref: "#/components/schemas/ErrorResponse" }
     Forbidden:
-      description: Signed-in user is not an administrator
+      description: Sufficient permissions required
       content:
         application/json:
           schema: { $ref: "#/components/schemas/ErrorResponse" }
@@ -236,7 +328,7 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/ErrorResponse" }
     Conflict:
-      description: A product with that SKU already exists
+      description: A product with that SKU already exists in your inventory
       content:
         application/json:
           schema: { $ref: "#/components/schemas/ErrorResponse" }
@@ -250,15 +342,17 @@ components:
         - status
     Product:
       type: object
-      required: [id, sku, name, category, quantity, reorderLevel, unitPrice, description, supplier, createdAt, updatedAt]
+      required: [id, ownerUserId, sku, name, category, quantity, reorderLevel, unitPrice, costPrice, description, supplier, createdAt, updatedAt]
       properties:
         id: { type: integer }
+        ownerUserId: { type: string }
         sku: { type: string }
         name: { type: string }
         category: { type: string }
         quantity: { type: integer }
         reorderLevel: { type: integer }
-        unitPrice: { type: number }
+        unitPrice: { type: number, description: "Selling price" }
+        costPrice: { type: number, description: "Purchase price" }
         description: { type: ["string", "null"] }
         supplier: { type: ["string", "null"] }
         createdAt: { type: string, format: date-time }
@@ -272,7 +366,8 @@ components:
         category: { type: string, minLength: 1, maxLength: 80 }
         quantity: { type: integer, minimum: 0 }
         reorderLevel: { type: integer, minimum: 0 }
-        unitPrice: { type: number, minimum: 0 }
+        unitPrice: { type: number, minimum: 0, description: "Selling price" }
+        costPrice: { type: number, minimum: 0, default: 0, description: "Purchase price" }
         description: { type: ["string", "null"], maxLength: 1000 }
         supplier: { type: ["string", "null"], maxLength: 160 }
     ProductUpdate:
@@ -284,7 +379,8 @@ components:
         category: { type: string, minLength: 1, maxLength: 80 }
         quantity: { type: integer, minimum: 0 }
         reorderLevel: { type: integer, minimum: 0 }
-        unitPrice: { type: number, minimum: 0 }
+        unitPrice: { type: number, minimum: 0, description: "Selling price" }
+        costPrice: { type: number, minimum: 0, description: "Purchase price" }
         description: { type: ["string", "null"], maxLength: 1000 }
         supplier: { type: ["string", "null"], maxLength: 160 }
     StockAdjustmentInput:
@@ -299,8 +395,11 @@ components:
       properties:
         id: { type: integer }
         productId: { type: integer }
+        productName: { type: string }
+        productSku: { type: string }
         delta: { type: integer }
         note: { type: string }
+        userId: { type: ["string", "null"] }
         createdAt: { type: string, format: date-time }
     StockAdjustmentResult:
       type: object
@@ -310,11 +409,12 @@ components:
         movement: { $ref: "#/components/schemas/StockMovement" }
     DashboardSummary:
       type: object
-      required: [productCount, totalUnits, inventoryValue, lowStockCount, outOfStockCount, categoryCount]
+      required: [productCount, totalUnits, inventoryValue, totalCostValue, lowStockCount, outOfStockCount, categoryCount]
       properties:
         productCount: { type: integer }
         totalUnits: { type: integer }
-        inventoryValue: { type: number }
+        inventoryValue: { type: number, description: "Total selling value" }
+        totalCostValue: { type: number, description: "Total purchase value" }
         lowStockCount: { type: integer }
         outOfStockCount: { type: integer }
         categoryCount: { type: integer }
@@ -324,9 +424,33 @@ components:
       properties:
         isAdmin: { type: boolean }
         registrationAllowed: { type: boolean }
+        role: { type: string }
+    CurrentUser:
+      type: object
+      required: [userId, email, role, isAdmin]
+      properties:
+        userId: { type: string }
+        email: { type: string }
+        name: { type: ["string", "null"] }
+        role: { type: string }
+        isAdmin: { type: boolean }
+    UserProfile:
+      type: object
+      required: [clerkUserId, email, role, productCount, createdAt]
+      properties:
+        clerkUserId: { type: string }
+        email: { type: string }
+        name: { type: ["string", "null"] }
+        role: { type: string }
+        productCount: { type: integer }
+        createdAt: { type: string, format: date-time }
+    UserRoleUpdate:
+      type: object
+      required: [role]
+      properties:
+        role: { type: string, enum: [admin, user] }
     ErrorResponse:
       type: object
       required: [error]
       properties:
         error: { type: string }
-
