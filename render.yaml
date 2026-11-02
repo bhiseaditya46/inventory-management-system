@@ -5,7 +5,7 @@ services:
     plan: free
     region: oregon
     buildCommand: pnpm install && pnpm run build
-    startCommand: pnpm run start
+    startCommand: node artifacts/api-server/dist/index.mjs
     envVars:
       - key: NODE_ENV
         value: production
@@ -17,4 +17,3 @@ services:
         sync: false
       - key: ADMIN_EMAIL
         value: bhiseaditya46@gmail.com
-

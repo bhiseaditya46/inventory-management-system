@@ -30,35 +30,59 @@ app.use(
   }),
 );
 
-app.use(cors());
+app.use(
+  cors({
+    origin: (_origin, callback) => {
+      // Reflect origin so browsers accept credentials in cross-origin setups
+      callback(null, true);
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "Accept", "X-Requested-With"],
+  }),
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve static frontend files first
-const clientDistPath = path.resolve(
-  import.meta.dirname,
-  "../../artifacts/inventory-manager/dist/public",
-);
+// Locate static frontend build across possible deployment layouts
+const candidateDistPaths = [
+  process.env.CLIENT_DIST_PATH,
+  path.resolve(process.cwd(), "artifacts/inventory-manager/dist/public"),
+  path.resolve(import.meta.dirname, "../../inventory-manager/dist/public"),
+  path.resolve(import.meta.dirname, "../../../artifacts/inventory-manager/dist/public"),
+  path.resolve(import.meta.dirname, "public"),
+  path.resolve(process.cwd(), "dist/public"),
+].filter(Boolean) as string[];
 
-if (fs.existsSync(clientDistPath)) {
+const clientDistPath = candidateDistPaths.find((p) => fs.existsSync(p)) || candidateDistPaths[0];
+const hasClientDist = fs.existsSync(clientDistPath);
+
+if (hasClientDist) {
+  logger.info({ clientDistPath }, "Serving static frontend assets");
   app.use(express.static(clientDistPath));
 }
 
-// Setup Clerk authentication middleware on API routes if secret key is present
+// Setup Clerk authentication middleware on API routes if keys are present
 const hasSecretKey = Boolean(
   process.env.CLERK_SECRET_KEY &&
     !process.env.CLERK_SECRET_KEY.includes("REPLACE_ME") &&
     process.env.CLERK_SECRET_KEY.startsWith("sk_"),
 );
 
-if (hasSecretKey) {
+const hasPublishableKey = Boolean(
+  process.env.CLERK_PUBLISHABLE_KEY &&
+    !process.env.CLERK_PUBLISHABLE_KEY.includes("REPLACE_ME") &&
+    process.env.CLERK_PUBLISHABLE_KEY.startsWith("pk_"),
+);
+
+if (hasSecretKey || hasPublishableKey) {
   try {
     app.use(
       "/api",
       clerkMiddleware({
         publishableKey: process.env.CLERK_PUBLISHABLE_KEY,
-        secretKey: process.env.CLERK_SECRET_KEY,
-        jwtKey: process.env.CLERK_JWT_KEY,
+        ...(hasSecretKey ? { secretKey: process.env.CLERK_SECRET_KEY } : {}),
+        ...(process.env.CLERK_JWT_KEY ? { jwtKey: process.env.CLERK_JWT_KEY } : {}),
       }),
     );
   } catch (err) {
@@ -69,8 +93,8 @@ if (hasSecretKey) {
 // Mount API routes
 app.use("/api", router);
 
-// Serve index.html for frontend client routing or redirect in dev
-if (fs.existsSync(clientDistPath)) {
+// Serve index.html for frontend client routing (SPA) or redirect in dev
+if (hasClientDist) {
   app.use((req, res, next) => {
     if (req.method === "GET" && !req.path.startsWith("/api") && req.accepts("html")) {
       res.sendFile(path.join(clientDistPath, "index.html"));
@@ -78,7 +102,7 @@ if (fs.existsSync(clientDistPath)) {
       next();
     }
   });
-} else {
+} else if (process.env.NODE_ENV !== "production") {
   // In development, redirect root requests to the Vite dev server
   app.get("/", (_req, res) => {
     const frontendPort = process.env.FRONTEND_PORT || "5173";

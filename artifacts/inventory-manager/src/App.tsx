@@ -23,6 +23,7 @@ import {
   getListProductsQueryKey,
   getListRecentMovementsQueryKey,
   setAuthTokenGetter,
+  setBaseUrl,
   useAdjustProductStock,
   useBootstrapAdmin,
   useCreateProduct,
@@ -63,6 +64,11 @@ function stripBase(path: string) {
   return basePath && path.startsWith(basePath) ? path.slice(basePath.length) || '/' : path;
 }
 if (!clerkPubKey) throw new Error('Missing CLERK_PUBLISHABLE_KEY or VITE_CLERK_PUBLISHABLE_KEY in .env file');
+
+const customApiUrl = import.meta.env.VITE_API_URL;
+if (customApiUrl && !customApiUrl.includes('localhost') && typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
+  setBaseUrl(customApiUrl);
+}
 
 const appearance = {
   theme: shadcn,
